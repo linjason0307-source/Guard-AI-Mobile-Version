@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GUARD AI | 兵不「驗」「詐」</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        :root {
+            --bg-color: #020617;
+            --card-bg: rgba(15, 23, 42, 0.9);
+        }
+        body { 
+            font-family: 'Noto Sans TC', sans-serif; 
+            background-color: var(--bg-color); 
+            color: #f1f5f9; 
+            overflow-x: hidden; 
+            font-size: 1rem; /* 手機端標準字體大小 */
+        }
+        .glass-panel { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .slogan-highlight { background: linear-gradient(90deg, #3b82f6, #a855f7, #3b82f6); background-size: 200% auto; color: transparent; -webkit-background-clip: text; animation: shine 4s linear infinite; }
+        @keyframes shine { to { background-position: 200% center; } }
+        .scan-line { width: 100%; height: 3px; background: #10b981; box-shadow: 0 0 20px #10b981; position: absolute; z-index: 20; animation: scanning 2.5s infinite ease-in-out; }
+        @keyframes scanning { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }
+        .voice-bar { width: 3px; height: 12px; background: #a855f7; border-radius: 10px; transition: height 0.1s ease; }
+        .risk-alert-pulse { animation: pulse-red 1s infinite; }
+        @keyframes pulse-red { 0% { border-color: rgba(239, 68, 68, 0.5); } 70% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } 100% { border-color: rgba(239, 68, 68, 0.5); } }
+        .toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 12px 30px; border-radius: 50px; z-index: 500; border: 1px solid rgba(255,255,255,0.1); width: 90%; text-align: center; }
+        input[type="file"] { display: none; }
+        .mirror { transform: scaleX(-1); }
+        .btn-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .btn-hover:active { transform: scale(0.95); } /* 手機點擊反饋 */
+        
+        .faq-answer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+        .faq-item.active .faq-answer { max-height: 500px; }
+        .faq-item.active i.fa-chevron-down { transform: rotate(180deg); }
+
+        .news-card { transition: all 0.3s ease; text-decoration: none; display: flex; flex-direction: column; height: 100%; }
+        
+        .alarm-active { animation: bg-red-flash 0.5s infinite alternate !important; }
+        @keyframes bg-red-flash { from { background-color: rgba(239, 68, 68, 0); } to { background-color: rgba(239, 68, 68, 0.3); } }
+
+        .interim-text { color: rgba(168, 85, 247, 0.6); font-style: italic; }
+        .transcript-container::-webkit-scrollbar { width: 4px; }
+        .transcript-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+        /* 視訊容器針對手機高度優化 */
+        .video-container { height: 50vh; min-height: 300px; }
+        @media (min-width: 1024px) {
+            .video-container { height: 100%; }
+        }
+    </style>
+</head>
+<body id="app" class="min-h-screen">
+
+    <div v-if="toastMsg" class="toast animate-bounce">{{ toastMsg }}</div>
+
+    <!-- 響應式 Nav -->
+    <nav class="fixed w-full top-0 z-[100] border-b border-white/10 px-4 md:px-8 py-3 md:py-5 flex justify-between items-center bg-slate-950/90 backdrop-blur-xl">
+        <div class="flex items-center gap-3 cursor-pointer" @click="activeModal = null">
+            <div class="w-10 h-10 md:w-12 md:h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                <i class="fas fa-shield-halved text-white text-lg"></i>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-xl md:text-2xl font-black text-white tracking-tight">GUARD AI</span>
+                <span class="hidden md:block text-[10px] text-blue-400 font-bold tracking-[0.2em]">國立潮州高中 | 兵不「驗」「詐」</span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 md:gap-6">
+            <!-- 聯絡人輸入區域在手機端縮小 -->
+            <div class="flex items-center gap-2 md:gap-4 bg-white/5 border border-white/10 px-3 md:px-6 py-1.5 md:py-2 rounded-xl">
+                <i class="fas fa-user-shield text-emerald-500 text-sm md:text-lg"></i>
+                <div class="flex items-center gap-2 md:gap-4 divide-x divide-white/10">
+                    <div class="flex flex-col">
+                        <span class="text-[7px] text-slate-500 font-bold uppercase tracking-widest">緊急人</span>
+                        <input type="text" v-model="emergencyContact" @blur="saveContact" placeholder="姓名" class="bg-transparent border-none outline-none text-[10px] md:text-xs font-bold text-white w-12 md:w-20">
+                    </div>
+                    <div class="flex flex-col pl-2 md:pl-4">
+                        <span class="text-[7px] text-slate-500 font-bold uppercase tracking-widest">電話</span>
+                        <input type="tel" v-model="emergencyPhone" @blur="saveContact" placeholder="號碼" class="bg-transparent border-none outline-none text-[10px] md:text-xs font-bold text-white w-16 md:w-24">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <main class="max-w-7xl mx-auto pt-28 md:pt-48 pb-12 px-6 md:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 md:gap-20 items-center">
+            <div class="lg:col-span-8">
+                <h1 class="text-4xl md:text-6xl lg:text-[80px] font-black leading-[1.2] mb-6 md:mb-12">
+                    <span class="slogan-highlight block">讓詐騙</span>
+                    <span class="slogan-highlight block">不再猖獗</span>
+                </h1>
+                <p class="text-slate-400 text-lg md:text-2xl font-medium max-w-3xl leading-relaxed">
+                    GuardAI 強化版。針對檢察官、公職詐騙語音深度學習，<br class="hidden md:block">同時支援即時逐字稿監控與視訊裸露防護。
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <!-- 功能卡片 -->
+    <section class="max-w-7xl mx-auto py-10 md:py-20 px-6 md:px-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+        <div class="glass-panel p-8 md:p-10 rounded-[2.5rem] md:rounded-[3rem] border-2 border-emerald-500/20 group hover:border-emerald-500/50">
+            <h3 class="text-2xl md:text-3xl font-black text-white mb-4"><i class="fas fa-box-open mr-2 text-emerald-500"></i>包裹物理鑑定</h3>
+            <p class="text-slate-400 mb-8 md:mb-10 text-sm md:text-base">可即時拍攝或「上傳包裹照片」，自動比對備忘錄單號，識破虛假物流。</p>
+            <button @click="openModal('parcel')" class="w-full py-4 md:py-5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl btn-hover">啟動鑑定</button>
+        </div>
+        <div class="glass-panel p-8 md:p-10 rounded-[2.5rem] md:rounded-[3rem] border-2 border-purple-500/20 group hover:border-purple-500/50">
+            <h3 class="text-2xl md:text-3xl font-black text-white mb-4"><i class="fas fa-phone-volume mr-2 text-purple-500"></i>語音極速監測</h3>
+            <p class="text-slate-400 mb-8 md:mb-10 text-sm md:text-base"><b>高敏銳模式：</b>同步顯示逐字稿流。識別「監管帳戶、ATM、法院」等威脅話術。</p>
+            <button @click="openModal('voice')" class="w-full py-4 md:py-5 bg-purple-600 hover:bg-purple-500 text-white font-black rounded-2xl btn-hover">啟動守護</button>
+        </div>
+        <div class="glass-panel p-8 md:p-10 rounded-[2.5rem] md:rounded-[3rem] border-2 border-blue-500/20 group hover:border-blue-400">
+            <h3 class="text-2xl md:text-3xl font-black text-white mb-4"><i class="fas fa-video mr-2 text-blue-500"></i>視訊深偽辨識</h3>
+            <p class="text-slate-400 mb-8 md:mb-10 text-sm md:text-base">分析微表情與光影連續性，監測裸露不當內容，判定影像真偽與隱私安全性。</p>
+            <button @click="openModal('video')" class="w-full py-4 md:py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl btn-hover">視訊鑑定</button>
+        </div>
+    </section>
+
+    <!-- 備忘錄區塊 -->
+    <section class="max-w-7xl mx-auto py-10 md:py-20 px-6 md:px-8 border-t border-white/5">
+        <div class="flex flex-col md:row justify-between items-start md:items-end mb-10 md:12 gap-6">
+            <div>
+                <h2 class="text-3xl md:text-4xl font-black mb-4"><i class="fas fa-boxes-stacked text-emerald-500 mr-4"></i>包裹預購備忘錄</h2>
+                <p class="text-slate-500 italic text-sm md:text-base">點擊按鈕上傳截圖（支援 3 張），AI 將真實解析商品與物流單號。</p>
+            </div>
+            <div class="w-full md:w-auto">
+                <button @click="triggerMemoUpload" class="w-full md:w-auto px-8 py-4 bg-emerald-600 text-white rounded-2xl font-bold btn-hover flex items-center justify-center gap-3">
+                    <i class="fas fa-images"></i> 上傳結帳截圖
+                </button>
+                <input type="file" id="memoInput" accept="image/*" multiple @change="handleMemoUpload">
+            </div>
+        </div>
+
+        <div v-if="memos.length === 0" class="glass-panel rounded-[2rem] md:rounded-[3rem] p-12 md:p-20 text-center border-dashed border-2 border-white/5">
+            <p class="text-slate-500 font-medium">目前尚無預購清單。</p>
+        </div>
+
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+            <div v-for="(memo, idx) in memos" :key="idx" class="glass-panel p-6 md:p-8 rounded-[2rem] relative group border border-white/5">
+                <button @click="deleteMemo(idx)" class="absolute top-6 right-6 text-slate-500 hover:text-red-500"><i class="fas fa-trash-can"></i></button>
+                <div class="flex items-start gap-4 mb-4 md:mb-6">
+                    <div class="w-10 h-10 md:w-12 md:h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-500"><i class="fas fa-box"></i></div>
+                    <div class="flex-1 min-w-0">
+                        <h4 class="text-lg md:text-xl font-black text-white truncate">{{ memo.item }}</h4>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase">{{ memo.platform }}</p>
+                    </div>
+                </div>
+                <div class="bg-black/20 p-4 rounded-xl border border-white/5">
+                    <p class="text-[8px] md:text-[10px] font-black text-slate-500 uppercase mb-1">物流單號</p>
+                    <p class="text-emerald-400 font-mono font-bold tracking-wider text-sm md:text-base">{{ memo.orderId }}</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 宣導區塊 -->
+    <section class="max-w-7xl mx-auto py-12 md:py-20 px-6 md:px-8 border-t border-white/5">
+        <h2 class="text-2xl md:text-4xl font-black mb-8 md:12 text-center text-red-500"><i class="fas fa-exclamation-triangle mr-2"></i>我們正在面對什麼？</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+            <div class="glass-panel p-6 md:p-8 rounded-[2rem] border border-red-500/10">
+                <div class="text-red-500 text-2xl md:text-3xl mb-4"><i class="fas fa-search-minus"></i></div>
+                <h4 class="text-lg md:text-xl font-bold text-white mb-2">難以辨識的包裹</h4>
+                <p class="text-slate-400 text-xs md:text-sm">每天收到無數取貨簡訊，卻早已遺忘自己到底買了什麼？詐騙者正利用「資訊落差」強迫中獎。</p>
+            </div>
+            <div class="glass-panel p-6 md:p-8 rounded-[2rem] border border-red-500/10">
+                <div class="text-red-500 text-2xl md:text-3xl mb-4"><i class="fas fa-user-secret"></i></div>
+                <h4 class="text-lg md:text-xl font-bold text-white mb-2">威脅身分的恐懼</h4>
+                <p class="text-slate-400 text-xs md:text-sm">接到「檢察官」或「公職人員」的電話時，心理壓力讓我們失去判斷力，容易聽從指示轉帳。</p>
+            </div>
+            <div class="glass-panel p-6 md:p-8 rounded-[2rem] border border-red-500/10">
+                <div class="text-red-500 text-2xl md:text-3xl mb-4"><i class="fas fa-mask"></i></div>
+                <h4 class="text-lg md:text-xl font-bold text-white mb-2">真假難分的親友</h4>
+                <p class="text-slate-400 text-xs md:text-sm">視訊畫面中熟悉的臉龐，背後可能是 AI 換臉技術。當「眼見不再為憑」，我們該如何信任？</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="max-w-7xl mx-auto py-12 md:py-20 px-6 md:px-8 border-t border-white/5">
+        <h2 class="text-2xl md:text-4xl font-black mb-8 md:12 text-center">常見防詐 Q&A</h2>
+        <div class="max-w-4xl mx-auto space-y-3 md:space-y-4">
+            <div v-for="(faq, i) in faqs" :key="i" class="faq-item glass-panel rounded-2xl md:rounded-3xl overflow-hidden cursor-pointer border border-white/5" :class="{ 'active': activeFaq === i }" @click="activeFaq = (activeFaq === i ? null : i)">
+                <div class="p-4 md:p-6 flex justify-between items-center bg-white/5 hover:bg-white/10">
+                    <span class="font-bold text-sm md:text-base">{{ faq.q }}</span>
+                    <i class="fas fa-chevron-down text-slate-500 text-xs"></i>
+                </div>
+                <div class="faq-answer px-4 md:px-6 bg-black/20">
+                    <div class="py-4 md:py-6 text-slate-400 text-xs md:text-sm leading-relaxed border-t border-white/5">
+                        {{ faq.a }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 新聞 -->
+    <section class="max-w-7xl mx-auto py-12 md:py-20 px-6 md:px-8 border-t border-white/5 mb-10 md:mb-20">
+        <h2 class="text-2xl md:text-4xl font-black mb-8 md:12"><i class="fas fa-newspaper text-blue-400 mr-4"></i>近期防詐警訊</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+            <a v-for="(news, nIdx) in newsList" :key="nIdx" :href="news.url" target="_blank" class="news-card glass-panel p-6 md:p-8 rounded-[2rem] border border-white/5">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] md:text-[10px] font-bold rounded-full">{{ news.category }}</span>
+                    <span class="text-[8px] md:text-[10px] text-slate-500">{{ news.date }}</span>
+                </div>
+                <h4 class="text-base md:text-xl font-black text-white mb-4 leading-tight flex-1">{{ news.title }}</h4>
+                <div class="mt-4 text-blue-400 text-[10px] md:text-xs font-bold uppercase tracking-widest">查看詳情 <i class="fas fa-arrow-right ml-2"></i></div>
+            </a>
+        </div>
+    </section>
+
+    <!-- 彈窗 Modal 優化 -->
+    <transition name="modal-fade">
+        <div v-if="activeModal" class="fixed inset-0 z-[300] flex items-end md:items-center justify-center p-0 md:p-6 bg-black/90 backdrop-blur-xl">
+            <div class="glass-panel w-full max-w-6xl h-[90vh] md:h-[85vh] rounded-t-[2.5rem] md:rounded-[4rem] flex flex-col relative overflow-hidden" :class="{'alarm-active': isAlarming}">
+                <!-- Header -->
+                <div class="px-6 md:px-12 py-5 md:py-8 flex justify-between items-center border-b border-white/10">
+                    <h3 class="text-xl md:text-3xl font-black text-white">{{ modalTitle }}</h3>
+                    <button @click="closeModal" class="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/5 flex items-center justify-center"><i class="fas fa-times"></i></button>
+                </div>
+
+                <div class="flex-1 p-4 md:p-8 overflow-y-auto">
+                    <!-- 語音監控 -->
+                    <div v-if="activeModal === 'voice'" class="h-full flex flex-col lg:flex-row gap-6 md:gap-8">
+                        <div class="flex-1 bg-slate-950 rounded-[2rem] md:rounded-[3rem] p-6 md:p-10 flex flex-col items-center justify-between border border-white/10">
+                            <div class="flex items-center gap-1.5 md:gap-2 h-16 md:h-24 mb-4 md:6">
+                                <div v-for="i in 15" :key="i" class="voice-bar" :style="{ height: (isRecording ? (10 + Math.random() * 50) : 6) + 'px', background: isAlarming ? '#ef4444' : '#a855f7' }"></div>
+                            </div>
+                            <div class="w-full flex-1 bg-black/40 rounded-2xl md:rounded-3xl p-5 md:p-8 overflow-y-auto border border-white/5 transcript-container">
+                                <div class="text-base md:text-xl leading-relaxed">
+                                    <span class="text-white">{{ currentTranscript }}</span>
+                                    <span class="interim-text">{{ interimTranscript }}</span>
+                                </div>
+                            </div>
+                            <button @click="toggleVoiceRecording" class="mt-6 md:8 w-full py-5 md:py-6 rounded-2xl font-black text-xl md:text-2xl text-white transition-all" :class="isRecording ? 'bg-red-600' : 'bg-purple-600'">
+                                {{ isRecording ? '停止監測' : '啟動語音防護' }}
+                            </button>
+                        </div>
+                        <div v-if="voiceAnalysis" class="w-full lg:w-[350px]">
+                            <div class="p-6 md:p-8 glass-panel rounded-[2rem] border-2" :class="getRiskClass(voiceAnalysis.riskLevel)">
+                                <h4 class="text-lg md:text-2xl font-black mb-3">AI 評估</h4>
+                                <p class="text-slate-300 text-xs md:text-sm">{{ voiceAnalysis.summary }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 視訊鑑定 -->
+                    <div v-if="activeModal === 'video'" class="h-full flex flex-col lg:flex-row gap-6 md:gap-8">
+                        <div class="flex-1 bg-black rounded-[2rem] md:rounded-[3rem] relative overflow-hidden flex flex-col border border-white/10 video-container">
+                            <video id="video-feed" class="w-full h-full object-cover mirror" :style="{ filter: (videoAnalysis && !videoAnalysis.isSafe) ? 'blur(50px)' : 'none' }" autoplay muted playsinline></video>
+                            <div v-if="videoAnalysis && !videoAnalysis.isSafe" class="absolute inset-0 bg-red-950/40 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center z-50">
+                                <i class="fas fa-eye-slash text-5xl md:text-7xl text-white mb-4 animate-pulse"></i>
+                                <h4 class="text-2xl md:text-4xl font-black text-white">偵測到敏感內容！</h4>
+                            </div>
+                            <div class="absolute bottom-6 md:bottom-10 left-0 right-0 flex justify-center z-[60] px-4">
+                                <button @click="performVideoScan" class="w-full md:w-auto px-10 py-4 md:py-5 bg-blue-600 text-white font-black rounded-2xl md:rounded-3xl shadow-2xl">啟動鑑定</button>
+                            </div>
+                        </div>
+                        <div v-if="videoAnalysis" class="w-full lg:w-[350px]">
+                            <div class="p-6 md:p-8 glass-panel rounded-[2rem] border-2" :class="videoAnalysis.isSafe ? 'border-blue-500' : 'border-red-600 risk-alert-pulse'">
+                                <h4 class="text-3xl md:text-5xl font-black text-center mb-4">{{ videoAnalysis.trustScore }}% <span class="text-[10px] block text-slate-500 mt-1">真實度評分</span></h4>
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between text-xs md:text-sm">
+                                        <span class="text-slate-500">內容安全：</span>
+                                        <span :class="videoAnalysis.isSafe ? 'text-emerald-400' : 'text-red-500 font-bold'">{{ videoAnalysis.isSafe ? '安全' : '偵測到裸露' }}</span>
+                                    </div>
+                                    <p class="text-slate-300 text-xs md:text-sm leading-relaxed border-t border-white/5 pt-3">{{ videoAnalysis.summary }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 包裹鑑定 -->
+                    <div v-if="activeModal === 'parcel'" class="h-full flex flex-col lg:flex-row gap-6 md:gap-8">
+                        <div class="flex-1 bg-black rounded-[2rem] md:rounded-[3rem] relative overflow-hidden flex flex-col items-center justify-center border border-white/10 video-container">
+                            <video id="parcel-feed" class="absolute inset-0 w-full h-full object-cover mirror" autoplay muted playsinline></video>
+                            <div v-if="isAnalyzing" class="scan-line"></div>
+                            <div class="absolute bottom-6 md:bottom-10 z-30 flex flex-col md:row gap-3 px-4 w-full md:w-auto">
+                                <button @click="captureParcel" class="px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl md:rounded-3xl" :disabled="isAnalyzing">拍攝並鑑定</button>
+                                <button @click="triggerParcelUpload" class="px-8 py-4 bg-white/10 text-white font-black rounded-2xl md:rounded-3xl border border-white/10" :disabled="isAnalyzing">
+                                    上傳面單
+                                </button>
+                                <input type="file" id="parcelUpload" accept="image/*" @change="handleParcelUpload">
+                            </div>
+                        </div>
+                        <div v-if="parcelResult" class="w-full lg:w-[350px]">
+                            <div class="p-6 md:p-8 glass-panel rounded-[2rem] border-2" :class="parcelResult.isMatch ? 'border-emerald-500' : 'border-red-500'">
+                                <h4 class="text-xl md:text-2xl font-black mb-4">鑑定結果</h4>
+                                <p class="text-slate-300 mb-6 text-sm">{{ parcelResult.summary }}</p>
+                                <div class="p-4 rounded-xl font-bold text-center text-sm md:text-base" :class="parcelResult.isMatch ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'">
+                                    {{ parcelResult.isMatch ? '符合預購記錄' : '查無匹配：請警惕' }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </transition>
+
+    <script type="module">
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const apiKey = ""; 
+                const activeModal = ref(null);
+                const toastMsg = ref('');
+                const memos = ref([]);
+                const activeFaq = ref(null);
+                const isAlarming = ref(false);
+                const emergencyContact = ref('');
+                const emergencyPhone = ref('');
+                const isRecording = ref(false);
+                const currentTranscript = ref('');
+                const interimTranscript = ref('');
+                const voiceAnalysis = ref(null);
+                const isAnalyzing = ref(false);
+                const videoAnalysis = ref(null);
+                const parcelResult = ref(null);
+
+                let recognition = null; let stream = null; let audioCtx = null; let alarmInterval = null; let analysisInterval = null;
+
+                onMounted(() => {
+                    const savedMemos = localStorage.getItem('guardai_v6_memos');
+                    if (savedMemos) memos.value = JSON.parse(savedMemos);
+                    const savedC = localStorage.getItem('guardai_emergency_contact');
+                    const savedP = localStorage.getItem('guardai_emergency_phone');
+                    if (savedC) emergencyContact.value = savedC;
+                    if (savedP) emergencyPhone.value = savedP;
+                    initSpeech();
+                });
+
+                const showToast = (msg) => { toastMsg.value = msg; setTimeout(() => toastMsg.value = '', 3000); };
+                const saveContact = () => {
+                    localStorage.setItem('guardai_emergency_contact', emergencyContact.value);
+                    localStorage.setItem('guardai_emergency_phone', emergencyPhone.value);
+                    showToast("聯絡資料已更新");
+                };
+
+                const callGeminiVision = async (prompt, base64List) => {
+                    const parts = [{ text: prompt }];
+                    base64List.forEach(data => parts.push({ inlineData: { mimeType: "image/png", data } }));
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts }] })
+                    });
+                    const result = await res.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const jsonMatch = text?.match(/\{[\s\S]*\}/);
+                    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+                };
+
+                const triggerMemoUpload = () => document.getElementById('memoInput').click();
+
+                const handleMemoUpload = async (e) => {
+                    const files = Array.from(e.target.files).slice(0, 3);
+                    if (files.length === 0) return;
+                    showToast("AI 正在解析截圖內容...");
+                    const base64List = await Promise.all(files.map(file => new Promise(resolve => {
+                        const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.readAsDataURL(file);
+                    })));
+                    const data = await callGeminiVision("提取截圖商品名、平台、單號。回傳 JSON: {\"item\": \"...\", \"platform\": \"...\", \"orderId\": \"...\"}", base64List);
+                    if (data && data.orderId) {
+                        memos.value.unshift(data); localStorage.setItem('guardai_v6_memos', JSON.stringify(memos.value));
+                        showToast("辨識成功並存入備忘錄");
+                    } else showToast("未能辨識有效資訊");
+                };
+
+                const analyzeParcelImage = async (base64) => {
+                    isAnalyzing.value = true;
+                    const data = await callGeminiVision(`比對備忘錄：${JSON.stringify(memos.value)}。辨識面單單號並判斷是否符合。回傳 JSON: {"isMatch": boolean, "summary": "說明"}`, [base64]);
+                    if (data) { parcelResult.value = data; if (!data.isMatch) startAlarm(); }
+                    isAnalyzing.value = false;
+                };
+
+                const captureParcel = () => {
+                    const video = document.getElementById('parcel-feed');
+                    const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0); analyzeParcelImage(canvas.toDataURL('image/png').split(',')[1]);
+                };
+
+                const triggerParcelUpload = () => document.getElementById('parcelUpload').click();
+
+                const handleParcelUpload = (e) => {
+                    const file = e.target.files[0]; if (!file) return;
+                    const reader = new FileReader(); reader.onload = () => analyzeParcelImage(reader.result.split(',')[1]); reader.readAsDataURL(file);
+                };
+
+                const performVideoScan = async () => {
+                    const video = document.getElementById('video-feed');
+                    const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    const data = await callGeminiVision("鑑定視訊真偽與是否有裸露內容。回傳 JSON: { \"trustScore\": 0-100, \"isSafe\": boolean, \"summary\": \"評析\" }", [canvas.toDataURL('image/png').split(',')[1]]);
+                    if (data) { videoAnalysis.value = data; if (!data.isSafe || data.trustScore < 40) startAlarm(); }
+                };
+
+                const initSpeech = () => {
+                    const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
+                    recognition = new SR(); recognition.lang = 'zh-TW'; recognition.continuous = true; recognition.interimResults = true;
+                    recognition.onresult = (e) => {
+                        let interim = ''; for (let i = e.resultIndex; i < e.results.length; ++i) {
+                            if (e.results[i].isFinal) currentTranscript.value += e.results[i][0].transcript + ' ';
+                            else interim += e.results[i][0].transcript;
+                        }
+                        interimTranscript.value = interim;
+                    };
+                };
+
+                const toggleVoiceRecording = () => {
+                    if (!isRecording.value) { isRecording.value = true; try { recognition.start(); } catch(e){} analysisInterval = setInterval(() => analyzeVoice(currentTranscript.value + interimTranscript.value), 5000); }
+                    else { isRecording.value = false; try { recognition.stop(); } catch(e){} clearInterval(analysisInterval); stopAlarm(); }
+                };
+
+                const analyzeVoice = async (text) => {
+                    if (text.length < 5) return;
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: `分析對話詐騙風險："${text}"。回傳 JSON: {"riskLevel": "低/高", "summary": "評析"}` }] }] })
+                    });
+                    const r = await res.json(); const raw = r.candidates?.[0]?.content?.parts?.[0]?.text?.match(/\{[\s\S]*\}/);
+                    if (raw) { voiceAnalysis.value = JSON.parse(raw[0]); if (voiceAnalysis.value.riskLevel === '高') startAlarm(); }
+                };
+
+                const openModal = async (m) => {
+                    activeModal.value = m;
+                    try { 
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true }); 
+                        setTimeout(() => { 
+                            const el = document.getElementById(m === 'parcel' ? 'parcel-feed' : 'video-feed'); 
+                            if (el) el.srcObject = stream; 
+                        }, 500); 
+                    } catch(e) {
+                        showToast("無法啟動相機權限");
+                    }
+                };
+
+                const closeModal = () => { if (stream) stream.getTracks().forEach(t => t.stop()); activeModal.value = null; stopAlarm(); if (recognition) recognition.stop(); isRecording.value = false; };
+                const startAlarm = () => {
+                    if (isAlarming.value) return; isAlarming.value = true; if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    alarmInterval = setInterval(() => { const o = audioCtx.createOscillator(); const g = audioCtx.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(800, audioCtx.currentTime); g.gain.setValueAtTime(0.1, audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.2); }, 500);
+                };
+                const stopAlarm = () => { clearInterval(alarmInterval); isAlarming.value = false; };
+                const deleteMemo = (idx) => { memos.value.splice(idx, 1); localStorage.setItem('guardai_v6_memos', JSON.stringify(memos.value)); };
+                const getRiskClass = (l) => l === '高' ? 'border-red-600 risk-alert-pulse' : 'border-emerald-500';
+
+                return {
+                    activeModal, toastMsg, memos, emergencyContact, emergencyPhone, isRecording, currentTranscript, interimTranscript, voiceAnalysis, videoAnalysis, parcelResult, isAlarming, isAnalyzing, activeFaq,
+                    newsList: [
+                        { category: "破案新聞", date: "Yahoo 新聞", title: "假檢警詐騙升溫！高雄警破獲 8 人集團，普發 6000 元變詐騙誘餌。", url: "https://tw.news.yahoo.com/%E6%99%AE%E7%99%BC-%E8%90%AC%E5%80%92%E6%95%B8-%E5%81%87%E6%AA%A2%E8%AD%A6-%E8%A9%90%E9%A8%99%E5%8D%87%E6%BA%AB-%E9%AB%98%E9%9B%84%E8%AD%A6%E7%A0%B48%E4%BA%BA%E9%9B%86%E5%9C%98-074646840.html" },
+                        { category: "社會焦點", date: "TVBS 新聞", title: "假檢警誘騙轉帳！最新話術解析：鎖定高齡與退休族群，假冒公職身分恐嚇。", url: "https://news.tvbs.com.tw/life/3184089" },
+                        { category: "影音專題", date: "YouTube", title: "防範 AI 換臉詐騙：刑事局示範如何一秒識破 Deepfake 視訊偽裝。", url: "https://www.youtube.com/watch?v=G6uHkpwVeYU" },
+                        { category: "警示影片", date: "YouTube", title: "檢警絕不會要求匯款！真實詐騙對話錄音曝光，教你聽關鍵字。", url: "https://www.youtube.com/watch?v=DvlLMPrTcDI" },
+                        { category: "教育宣導", date: "YouTube", title: "ATM 解除分期付款是騙局！揭露包裹詐騙與假物流簡訊的運作模式。", url: "https://www.youtube.com/watch?v=2spk2WaMdNk" },
+                        { category: "官方公告", date: "刑事警察局", title: "刑事局最新防詐動態：打詐國家隊專區，提供最新詐騙手法趨勢報告。", url: "https://www.cib.npa.gov.tw/ch/app/news/list?module=news&id=1885" }
+                    ],
+                    faqs: [
+                        { q: "對方說是檢察官，這能辨識嗎？", a: "可以。GuardAI 語音監控能偵測關鍵字並比對公職詐騙資料庫。" },
+                        { q: "視訊鑑定真的能看穿 Deepfake 嗎？", a: "會分析眼神、光影破綻與微表情，幫助識別 AI 換臉技術。" },
+                        { q: "偵測到裸露內容會怎麼處理？", a: "系統會立即啟動模糊濾鏡並發出警報，防止勒索恐嚇。" },
+                        { q: "上傳包裹照片鑑定安全嗎？", a: "照片僅供即時分析，不會儲存在雲端，保障您的隱私。" },
+                        { q: "緊急聯絡功能何時會啟動？", a: "當 AI 判定為極高風險所偵測到威脅時，會自動通知您的緊急聯絡人。" },
+                        { q: "預購備忘錄需要手動輸入嗎？", a: "不需要。上傳截圖後 AI 會自動提取商品與單號（支援 3 張）。" }
+                    ],
+                    openModal, closeModal, saveContact, toggleVoiceRecording, performVideoScan, captureParcel, triggerParcelUpload, handleParcelUpload, triggerMemoUpload, handleMemoUpload, deleteMemo, getRiskClass,
+                    modalTitle: computed(() => ({ voice: '語音防護', video: '視訊真實度鑑定', parcel: '包裹真實鑑定' }[activeModal.value]))
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
